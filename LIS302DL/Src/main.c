@@ -58,6 +58,9 @@ static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
+uint8_t read_from_acc(uint8_t address);
+void write_to_acc(uint8_t address, uint8_t data);
+uint8_t acc_who_am_i();
 void acc_init();
 /* USER CODE END PFP */
 
@@ -348,18 +351,54 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /**
-  * @brief  This function is executed to initialize accelerometer.
+  * @brief  Read data from an specific accelerometer register.
+  * @param  address: register address to be read
+  * @retval a byte of read data
+  */
+uint8_t read_from_acc(uint8_t address) {
+	uint8_t acc_address_data = (acc_read_nonincremented_address_header << 6) | address;
+	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
+
+	uint8_t acc_do_data;
+	HAL_SPI_Receive(&hspi1, &acc_do_data, 1, SPI_TIMEOUT);
+	return acc_do_data;
+}
+
+/**
+  * @brief  Write data to an specific accelerometer register.
+  * @param  address: register address to be written
+  * @param  data: data to be written
+  * @retval none
+  */
+void write_to_acc(uint8_t address, uint8_t data) {
+	uint8_t acc_address_data = (acc_write_nonincremented_address_header << 6) | address;
+	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
+
+	uint8_t acc_di_data = data;
+	HAL_SPI_Receive(&hspi1, &acc_di_data, 1, SPI_TIMEOUT);
+}
+
+/**
+  * @brief  Fetch data from WHO_AM_I register to identify an accelerometer device.
+  * @param  None
+  * @retval None
+  */
+uint8_t acc_who_am_i() {
+	uint8_t who_am_i_reg_addr = 0x0F;
+	return read_from_acc(who_am_i_reg_addr);
+}
+
+/**
+  * @brief  Initialize accelerometer.
   * @param  None
   * @retval None
   */
 void acc_init() {
-	// Set CTRL_REG1 (20h) register
-	uint8_t acc_address_data = (acc_write_nonincremented_address_header << 6) | 0x20;
-	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
-
-	uint8_t acc_di_data = 0b01000111;
-	HAL_SPI_Transmit(&hspi1, &acc_di_data, 1, SPI_TIMEOUT);
+	uint8_t ctrl_reg1_reg_addr = 0x20;
+	uint8_t ctrl_reg1_reg_data = 0b01000111;
+	write_to_acc(ctrl_reg1_reg_addr, ctrl_reg1_reg_data);
 }
+
 /* USER CODE END 4 */
 
 /**
