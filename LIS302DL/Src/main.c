@@ -36,6 +36,7 @@
 
 /* USER CODE BEGIN Includes */
 #define SPI_TIMEOUT 20
+#define UART_TIMEOUT 50
 #define ACC_CS_GPIO_TYPE GPIOE
 #define ACC_CS_GPIO_PIN_NUMBER GPIO_PIN_3
 /* USER CODE END Includes */
@@ -463,6 +464,18 @@ uint8_t acc_read_y() {
 uint8_t acc_read_z() {
 	uint8_t out_z_reg_addr = 0x2D;
 	return read_from_acc(out_z_reg_addr);
+}
+
+/**
+  * @brief  Send data via UART.
+  * @param  data: data to be sent
+  * @retval none
+  */
+void send_data_via_uart(char data[]) {
+	int i = 0;
+	while(data[i] != '\0') {
+		HAL_UART_Transmit(&huart2, &data[i++], 1, UART_TIMEOUT);
+	}
 }
 
 /* USER CODE END 4 */
