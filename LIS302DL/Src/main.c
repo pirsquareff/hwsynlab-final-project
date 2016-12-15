@@ -59,13 +59,21 @@ static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
+
 /* Private function prototypes -----------------------------------------------*/
 void set_cs_before_communicating_with_acc();
 void set_cs_after_communicating_with_acc();
+
 uint8_t read_from_acc(uint8_t address);
 void write_to_acc(uint8_t address, uint8_t data);
+
 uint8_t acc_who_am_i();
 void acc_init();
+
+uint8_t acc_read_x();
+uint8_t acc_read_y();
+uint8_t acc_read_z();
+
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -425,6 +433,36 @@ void acc_init() {
 	uint8_t ctrl_reg1_reg_addr = 0x20;
 	uint8_t ctrl_reg1_reg_data = 0b01000111;
 	write_to_acc(ctrl_reg1_reg_addr, ctrl_reg1_reg_data);
+}
+
+/**
+  * @brief  Read x-axis acceleration.
+  * @param  None
+  * @retval x-axis acceleration
+  */
+uint8_t acc_read_x() {
+	uint8_t out_x_reg_addr = 0x29;
+	return read_from_acc(out_x_reg_addr);
+}
+
+/**
+  * @brief  Read y-axis acceleration.
+  * @param  None
+  * @retval y-axis acceleration
+  */
+uint8_t acc_read_y() {
+	uint8_t out_y_reg_addr = 0x2B;
+	return read_from_acc(out_y_reg_addr);
+}
+
+/**
+  * @brief  Read z-axis acceleration.
+  * @param  None
+  * @retval z-axis acceleration
+  */
+uint8_t acc_read_z() {
+	uint8_t out_z_reg_addr = 0x2D;
+	return read_from_acc(out_z_reg_addr);
 }
 
 /* USER CODE END 4 */
