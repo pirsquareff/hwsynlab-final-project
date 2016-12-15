@@ -31,6 +31,8 @@
  ******************************************************************************
  */
 /* Includes ------------------------------------------------------------------*/
+#include <inttypes.h>
+#include <stdio.h>
 #include "main.h"
 #include "stm32f4xx_hal.h"
 
@@ -117,7 +119,7 @@ int main(void) {
 
 	// Device Identification
 	uint8_t device_id = acc_who_am_i();
-	sprintf(string_buffer, "Device Identification: %hhu\n\r", device_id);
+	sprintf(string_buffer, "Device Identification: %d\n\r", device_id);
 	send_data_via_uart(string_buffer);
 
 	// Start timer3
@@ -537,8 +539,7 @@ void read_acceleration_and_send() {
 	x_acc = acc_read_x();
 	y_acc = acc_read_y();
 	z_acc = acc_read_z();
-	sprintf(string_buffer, "X-axis: %hhu\tY-axis: %hhu\tZ-axis: %huu\n\r", x_acc,
-			y_acc, z_acc);
+	sprintf(string_buffer, "x-axis: %d\ty-axis: %d\tz-axis: %d\n\r", x_acc, y_acc, z_acc);
 	send_data_via_uart(string_buffer);
 }
 
