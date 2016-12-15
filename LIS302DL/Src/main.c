@@ -36,6 +36,8 @@
 
 /* USER CODE BEGIN Includes */
 #define SPI_TIMEOUT 20
+#define ACC_CS_GPIO_TYPE GPIOE
+#define ACC_CS_GPIO_PIN_NUMBER GPIO_PIN_3
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -58,6 +60,8 @@ static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
+void set_cs_before_communicating_with_acc();
+void set_cs_after_communicating_with_acc();
 uint8_t read_from_acc(uint8_t address);
 void write_to_acc(uint8_t address, uint8_t data);
 uint8_t acc_who_am_i();
@@ -351,16 +355,38 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /**
+  * @brief  Set CS before communicating with an accelerometer.
+  * @param  none
+  * @retval none
+  */
+void set_cs_before_communicating_with_acc() {
+	// Set to low
+	HAL_GPIO_WritePin(ACC_CS_GPIO_TYPE, ACC_CS_GPIO_PIN_NUMBER, GPIO_PIN_RESET);
+}
+
+/**
+  * @brief  Set CS after communicating with an accelerometer.
+  * @param  none
+  * @retval none
+  */
+void set_cs_after_communicating_with_acc() {
+	// Set to high
+	HAL_GPIO_WritePin(ACC_CS_GPIO_TYPE, ACC_CS_GPIO_PIN_NUMBER, GPIO_PIN_SET);
+}
+
+/**
   * @brief  Read data from an specific accelerometer register.
   * @param  address: register address to be read
   * @retval a byte of read data
   */
 uint8_t read_from_acc(uint8_t address) {
+	set_cs_before_communicating_with_acc();
 	uint8_t acc_address_data = (acc_read_nonincremented_address_header << 6) | address;
 	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
 
 	uint8_t acc_do_data;
 	HAL_SPI_Receive(&hspi1, &acc_do_data, 1, SPI_TIMEOUT);
+	set_cs_after_communicating_with_acc();
 	return acc_do_data;
 }
 
@@ -371,11 +397,13 @@ uint8_t read_from_acc(uint8_t address) {
   * @retval none
   */
 void write_to_acc(uint8_t address, uint8_t data) {
+	set_cs_before_communicating_with_acc();
 	uint8_t acc_address_data = (acc_write_nonincremented_address_header << 6) | address;
 	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
 
 	uint8_t acc_di_data = data;
 	HAL_SPI_Receive(&hspi1, &acc_di_data, 1, SPI_TIMEOUT);
+	set_cs_after_communicating_with_acc();
 }
 
 /**
