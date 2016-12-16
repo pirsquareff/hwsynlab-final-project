@@ -31,12 +31,12 @@
  ******************************************************************************
  */
 /* Includes ------------------------------------------------------------------*/
-#include <inttypes.h>
-#include <stdio.h>
 #include "main.h"
 #include "stm32f4xx_hal.h"
 
 /* USER CODE BEGIN Includes */
+#include <inttypes.h>
+#include <stdio.h>
 #define SPI_TIMEOUT 20
 #define UART_TIMEOUT 50
 #define ACC_CS_GPIO_TYPE GPIOE
@@ -78,7 +78,7 @@ void acc_init();
 int8_t acc_read_x();
 int8_t acc_read_y();
 int8_t acc_read_z();
-void show_acc_led_indicator(int8_t x_acc, int8_t y_acc, int8_t z_acc)
+void show_acc_led_indicator(int8_t x_acc, int8_t y_acc, int8_t z_acc);
 void send_data_via_uart(char *data);
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 
@@ -117,7 +117,7 @@ int main(void) {
 
 	// Device Identification
 	uint8_t device_id = acc_who_am_i();
-	sprintf(string_buffer, "Device Identification: %d\n", device_id);
+	sprintf(string_buffer, "Device Identification: %d\n\r", device_id);
 	send_data_via_uart(string_buffer);
 
 	// Start timer3
@@ -551,7 +551,7 @@ void read_acceleration_and_send() {
 	x_acc = acc_read_x();
 	y_acc = acc_read_y();
 	z_acc = acc_read_z();
-	sprintf(string_buffer, "x-axis: %d, y-axis: %d, z-axis: %d\n", x_acc, y_acc, z_acc);
+	sprintf(string_buffer, "x-axis: %d, y-axis: %d, z-axis: %d\n\r", x_acc, y_acc, z_acc);
 	send_data_via_uart(string_buffer);
 	show_acc_led_indicator(x_acc, y_acc, z_acc);
 }

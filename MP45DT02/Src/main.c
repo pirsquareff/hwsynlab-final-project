@@ -143,7 +143,7 @@ int main(void) {
 			max_amp = leaky_amp_buffer;
 		pcm_square += (leaky_amp_buffer / 2500) * leaky_amp_buffer;
 		if (pcm_count == 2500) {
-			sprintf(uart_buffer, "Loudness: %d\n", (int) max_amp);
+			sprintf(uart_buffer, "Loudness: %d\n\r", (int) max_amp);
 			send_data_via_uart(uart_buffer, strlen(uart_buffer));
 			pcm_count = 0;
 			pcm_square = 0;

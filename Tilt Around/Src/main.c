@@ -40,7 +40,7 @@
 #include <string.h>
 #define SPI_TIMEOUT 20
 #define I2C_TIMEOUT 50
-#define UART_TIMEOUT 100
+#define UART_TIMEOUT 1
 #define I2S_TIMEOUT 1000
 
 // LIS302DL: Accelerometer
@@ -52,18 +52,19 @@
 #define PCM_BUFFER_SIZE 2500
 #define LEAKY_KEEP_RATE 0.95
 #define PDM_STREAM_BLOCK_SIZE_BIT 8
-#define LOUD_THRESHOLD 40
+#define LOUD_THRESHOLD 55
+#define LOUD_THRESHOLD_ACCURATE 800
 
 // CS43L22: Speaker
 #define SPEAKER_RESET_GPIO_TYPE GPIOD
 #define SPEAKER_RESET_GPIO_PIN_NUMBER GPIO_PIN_4
 #define DELAY_DURATION 500
-#define BEAT 100
 #define BEEP_VOLUME 0x1A
+#define BEAT 100
 
-// Game
-#define AREA_WIDTH 30
-#define AREA_HEIGHT 50
+// Control
+#define AREA_WIDTH 75
+#define AREA_HEIGHT 55
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -121,6 +122,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 uint16_t read_pdm();
 int calculate_volume(uint16_t data);
 float abs_float(float in);
+uint8_t is_loud();
+uint8_t is_loud_accurate();
 
 // CS43L22: Speaker
 void play_musical_note(int index);
@@ -129,8 +132,10 @@ void write_to_speaker_reg(uint8_t address, uint8_t data);
 void speaker_init();
 int character_note_index_mapping(uint8_t character);
 
-// Game
+// Control
 void print_area();
+void flush_screen();
+void update_main_character(int8_t x_acc, int8_t y_acc, int8_t z_acc);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
@@ -156,17 +161,29 @@ char musical_note_name[][2] = { "C4", "C5", "D5", "E5", "F5", "G5", "A5", "B5", 
 		"D6", "E6", "F6", "G6", "A6", "B6", "C7" };
 int is_playing = 0;
 
-// Game
+// Control
 int area[AREA_HEIGHT][AREA_WIDTH];
+int main_character_i = 27;
+int main_character_j = 37;
+int beat_duration = 550;
+int beat_duration_rewind_mode = 200;
+int rewind_mode = 0;
+int pause = 0;
+int range_speed_up = 300;
+int base_beat_duration = 600;
 /* USER CODE END 0 */
 
 int main(void)
 {
-
   /* USER CODE BEGIN 1 */
 	// Common
 	int i;
+	int state = 0;
 
+	int number_of_note = 16;
+	int note[] = { 6, -1, 6, 8, 9, 9, 8, 6, 9, 5, 9, 8, 9, 5, -1, -1 };
+	float beat[] = { 0.5,
+			0.5, 0.5, 0.5, 0.5, 0.25, 0.25, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 1.0, 0.5 };
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -204,23 +221,28 @@ int main(void)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
-//		if (!is_playing) {
-//			is_playing = 1;
-//			play_musical_note_with_beat(note[i], beat[i]);
-//			i = (i + 1) % number_of_note;
-//		}
+		if(state == 0) {
+			if(is_loud_accurate()) {
+				state = 1;
+			} else {
+				state = 0;
+			}
+		} else if(state == 1) {
+			if(!is_playing && !pause) {
+				is_playing = 1;
+				play_musical_note_with_beat(note[i], beat[i]);
+				if(rewind_mode) {
+					if(i == 0) i = number_of_note - 1;
+					else i--;
+				} else {
+					i = (i + 1) % number_of_note;
+				}
+			}
+			state = 1;
+		}
+  	// is_loud();
+  	// HAL_Delay(500);
 
-  	// Play note
-//		uint8_t data;
-//		if (HAL_UART_Receive(&huart2, &data, 1, UART_TIMEOUT) == HAL_OK
-//				&& !is_playing) {
-//			is_playing = 1;
-//			int index = character_note_index_mapping(data);
-//			play_musical_note(index);
-//			send_data_via_uart_with_size(musical_note_name[index], 2);
-//			send_data_via_uart_with_size("\n", 1);
-//			HAL_Delay(100);
-//		}
   }
   /* USER CODE END 3 */
 
@@ -712,6 +734,7 @@ void read_acceleration_and_send() {
 	// sprintf(uart_buffer, "x-axis: %d, y-axis: %d, z-axis: %d\n", x_acc, y_acc, z_acc);
 	// send_data_via_uart(uart_buffer);
 	show_acc_led_indicator(x_acc, y_acc, z_acc);
+	update_main_character(x_acc, y_acc, z_acc);
 }
 
 void show_acc_led_indicator(int8_t x_acc, int8_t y_acc, int8_t z_acc) {
@@ -738,6 +761,26 @@ void show_acc_led_indicator(int8_t x_acc, int8_t y_acc, int8_t z_acc) {
 		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET); // Orange LED
 	} else {
 		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET); // Orange LED
+	}
+}
+
+void update_main_character(int8_t x_acc, int8_t y_acc, int8_t z_acc) {
+	if(x_acc < -30) {
+		// Left
+		beat_duration = (int) (base_beat_duration + (((x_acc - 30) * range_speed_up) / 98.0));
+	} else if(x_acc > 30) {
+		// Right
+		beat_duration = (int) (base_beat_duration - (((-x_acc - 30) * range_speed_up) / 98.0));
+	} else {
+		beat_duration = base_beat_duration;
+	}
+	// Top
+	if(y_acc < -30) {
+		rewind_mode = 1;
+	} else if(y_acc > 30) {
+
+	} else {
+		rewind_mode = 0;
 	}
 }
 
@@ -790,7 +833,42 @@ uint8_t is_loud() {
 		uint16_t pdm_stream = read_pdm();
 		volume_accumulate += calculate_volume(pdm_stream);
 	}
+	sprintf(uart_buffer, "Loudness: %d\n\r", volume_accumulate);
+	send_data_via_uart_with_size(uart_buffer, strlen(uart_buffer));
 	return volume_accumulate > LOUD_THRESHOLD;
+}
+
+uint8_t is_loud_accurate() {
+	uint8_t i;
+	while(pcm_count < 2500) {
+		HAL_I2S_Receive(&hi2s2, pdm_buffer, PDM_BUFFER_SIZE, I2S_TIMEOUT);
+		for(i = 0; i < PDM_BUFFER_SIZE; i++) {
+			pcm_value = -PDM_STREAM_BLOCK_SIZE_BIT / 2;
+			pdm_value = pdm_buffer[i];
+			while(pdm_value != 0) {
+				pcm_value++;
+				pdm_value ^= pdm_value & -pdm_value;
+			}
+			leaky_pcm_buffer += pcm_value;
+			leaky_pcm_buffer *= LEAKY_KEEP_RATE;
+			leaky_amp_buffer += abs_float(leaky_pcm_buffer);
+			leaky_amp_buffer *= LEAKY_KEEP_RATE;
+		}
+		pcm_count++;
+		if(max_amp < leaky_amp_buffer)
+			max_amp = leaky_amp_buffer;
+		pcm_square += (leaky_amp_buffer / 2500) * leaky_amp_buffer;
+	}
+	sprintf(uart_buffer, "Loudness: %d\r\n", (int) max_amp);
+	send_data_via_uart_with_size(uart_buffer, strlen(uart_buffer));
+	pcm_count = 0;
+	pcm_square = 0;
+	if((int) max_amp > LOUD_THRESHOLD_ACCURATE) {
+		max_amp = 0;
+		return 1;
+	}
+	max_amp = 0;
+	return 0;
 }
 
 // CS43L22: Speaker
@@ -858,28 +936,25 @@ void play_musical_note_with_beat(int index, float beat) {
 		return;
 	}
 
-	int cycles_compromise = (int) (beat * 600);
-	if (index == -1) {
-		int i;
-		for (i = 0; i < cycles_compromise; i++)
-			;
-		is_playing = 0;
-		return;
-	}
+	int _beat_duration = rewind_mode ? beat_duration_rewind_mode : beat_duration;
+
+	int cycles_compromise = (int) (beat * _beat_duration);
+	uint8_t note = index >= 0 ? musical_note[index] : 0;
 
 	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
 
 	// Beep Mix Disable: disable
 	write_to_speaker_reg(0x1E, 0x20);
-	write_to_speaker_reg(0x1C, musical_note[index]);
+	write_to_speaker_reg(0x1C, note);
 	// Beep Configuration: continuous
 	write_to_speaker_reg(0x1E, 0xE0);
 
 	int i;
 	// Beats
-	// int cycles = (int) (beat * ((60 / bpm) / clock));
 	for (i = 0; i < cycles_compromise; i++) {
-		HAL_I2S_Transmit(&hi2s3, (uint16_t *) "a", 100, I2C_TIMEOUT);
+		if (index != -1) {
+			HAL_I2S_Transmit(&hi2s3, (uint16_t *) "a", 100, I2C_TIMEOUT);
+		}
 	}
 	is_playing = 0;
 }
@@ -917,19 +992,25 @@ void speaker_init() {
 	write_to_speaker_reg(0x02, 0x9E);
 }
 
-// Game
+// Control
 void print_area() {
-	uint8_t i = 0;
-	for(; i < AREA_HEIGHT; i++) {
-		send_data_via_uart_with_size((char *) area[i], AREA_WIDTH);
-		send_data_via_uart_with_size("\n", 1);
+	uint8_t i, j;
+	for(i = 0; i < AREA_HEIGHT; i++) {
+		for(j = 0; j < AREA_WIDTH; j++) {
+			if(i == main_character_i && j == main_character_j)
+				send_data_via_uart_with_size("#", 1);
+			else {
+				send_data_via_uart_with_size(" ", 1);
+			}
+		}
+		send_data_via_uart_with_size("\r\n", 2);
 	}
 }
 
 void flush_screen() {
-	uint8_t i = 0;
-	for(; i < AREA_HEIGHT + 20; i++) {
-		send_data_via_uart_with_size("\n", 1);
+	uint8_t i;
+	for(i = 0; i < 2 * AREA_HEIGHT + 20; i++) {
+		send_data_via_uart_with_size("\r\n", 2);
 	}
 }
 

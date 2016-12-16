@@ -127,7 +127,7 @@ int main(void) {
 			int index = character_note_index_mapping(data);
 			play_musical_note(index);
 			send_data_via_uart(musical_note_name[index], 2);
-			send_data_via_uart("\n", 1);
+			send_data_via_uart("\n\r", 2);
 			HAL_Delay(100);
 		}
 	}
