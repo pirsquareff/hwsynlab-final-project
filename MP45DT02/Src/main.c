@@ -33,10 +33,16 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f4xx_hal.h"
+#include <string.h>
+#include <math.h>
 
 /* USER CODE BEGIN Includes */
-#define UART_TIMEOUT 50
-#define I2S_TIMEOUT 100
+#define UART_TIMEOUT 20
+#define I2S_TIMEOUT 1000
+#define PDM_BUFFER_SIZE 20
+#define PCM_BUFFER_SIZE 2500
+#define LEAKY_KEEP_RATE 0.95
+#define PDM_STREAM_BLOCK_SIZE_BIT 8
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -60,20 +66,33 @@ static void MX_USART2_UART_Init(void);
 
 /* Private function prototypes -----------------------------------------------*/
 uint16_t read_pdm();
-void send_data_via_uart(char *data);
+void send_data_via_uart(char *data, uint16_t size);
+int calculate_volume(uint16_t data);
+float abs_float(float in);
 
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
 
-char string_buffer[100];
+char uart_buffer[100];
 
 /* USER CODE END 0 */
 
 int main(void) {
 
 	/* USER CODE BEGIN 1 */
+	uint16_t pdm_buffer[PDM_BUFFER_SIZE];
+	uint16_t pdm_value = 0;
+	int8_t pcm_value = 0;
+	uint16_t pcm_count = 0;
 
+	float leaky_pcm_buffer = 0.0; // For PDM moving average
+	float leaky_amp_buffer = 0.0; // For |PCM| moving average
+
+	double pcm_square = 0;
+	float max_amp = 0;
+
+	uint8_t i;
 	/* USER CODE END 1 */
 
 	/* MCU Configuration----------------------------------------------------------*/
@@ -99,10 +118,37 @@ int main(void) {
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
-		uint16_t pdmStream = read_pdm();
-		int volume = calculate_volume(pdmStream);
-		sprintf(string_buffer, "Volume: %d\n\r", volume);
-		send_data_via_uart(string_buffer);
+//		uint16_t pdm_stream = read_pdm();
+//		sprintf(uart_buffer, "PDM: %d\n", pdm_stream);
+//		send_data_via_uart(uart_buffer);
+//		int volume = calculate_volume(pdm_stream);
+//		sprintf(uart_buffer, "Volume: %d\n\r", volume);
+//		send_data_via_uart(uart_buffer);
+		HAL_I2S_Receive(&hi2s2, pdm_buffer, PDM_BUFFER_SIZE, I2S_TIMEOUT);
+		for (i = 0; i < PDM_BUFFER_SIZE; i++) {
+			pcm_value = -PDM_STREAM_BLOCK_SIZE_BIT / 2;
+			pdm_value = pdm_buffer[i];
+			// calculate PCM value
+			while (pdm_value != 0) {
+				pcm_value++;
+				pdm_value ^= pdm_value & -pdm_value;
+			}
+			leaky_pcm_buffer += pcm_value;
+			leaky_pcm_buffer *= LEAKY_KEEP_RATE;
+			leaky_amp_buffer += abs_float(leaky_pcm_buffer);
+			leaky_amp_buffer *= LEAKY_KEEP_RATE;
+		}
+		pcm_count++;
+		if (max_amp < leaky_amp_buffer)
+			max_amp = leaky_amp_buffer;
+		pcm_square += (leaky_amp_buffer / 2500) * leaky_amp_buffer;
+		if (pcm_count == 2500) {
+			sprintf(uart_buffer, "Loudness: %d\n", (int) max_amp);
+			send_data_via_uart(uart_buffer, strlen(uart_buffer));
+			pcm_count = 0;
+			pcm_square = 0;
+			max_amp = 0;
+		}
 	}
 	/* USER CODE END 3 */
 
@@ -252,7 +298,7 @@ static void MX_GPIO_Init(void) {
 
 	/*Configure GPIO pin Output Level */
 	HAL_GPIO_WritePin(GPIOD,
-			LD4_Pin | LD3_Pin | LD5_Pin | LD6_Pin | Audio_RST_Pin, GPIO_PIN_RESET);
+	LD4_Pin | LD3_Pin | LD5_Pin | LD6_Pin | Audio_RST_Pin, GPIO_PIN_RESET);
 
 	/*Configure GPIO pin : CS_I2C_SPI_Pin */
 	GPIO_InitStruct.Pin = CS_I2C_SPI_Pin;
@@ -350,6 +396,10 @@ static void MX_GPIO_Init(void) {
 
 /* USER CODE BEGIN 4 */
 
+float abs_float(float in) {
+	return in < 0 ? -in : in;
+}
+
 /**
  * @brief  Calculate volume from PDM stream.
  * @param  data: PDM stream
@@ -370,9 +420,9 @@ int calculate_volume(uint16_t data) {
  * @retval 16-bit PDM
  */
 uint16_t read_pdm() {
-	uint16_t pdmStream;
-	HAL_I2S_Receive(&hi2s2, &pdmStream, 1, I2S_TIMEOUT);
-	return pdmStream;
+	uint16_t pdm_stream;
+	HAL_I2S_Receive(&hi2s2, &pdm_stream, 1, I2S_TIMEOUT);
+	return pdm_stream;
 }
 
 /**
@@ -380,11 +430,8 @@ uint16_t read_pdm() {
  * @param  data: data to be sent
  * @retval None
  */
-void send_data_via_uart(char *data) {
-	int i = 0;
-	while (data[i] != '\0') {
-		HAL_UART_Transmit(&huart2, (uint8_t *) &data[i++], 1, UART_TIMEOUT);
-	}
+void send_data_via_uart(char *data, uint16_t size) {
+	HAL_UART_Transmit(&huart2, (uint8_t *) data, size, UART_TIMEOUT);
 }
 
 /* USER CODE END 4 */

@@ -2881,15 +2881,6 @@ Discarded input sections
  .debug_macro   0x0000000000000000       0xfd Src/main.o
  .debug_macro   0x0000000000000000       0x5e Src/main.o
  .debug_macro   0x0000000000000000      0x1df Src/main.o
- .debug_macro   0x0000000000000000      0x14e Src/main.o
- .debug_macro   0x0000000000000000      0x185 Src/main.o
- .debug_macro   0x0000000000000000       0x31 Src/main.o
- .debug_macro   0x0000000000000000       0x28 Src/main.o
- .debug_macro   0x0000000000000000       0x50 Src/main.o
- .debug_macro   0x0000000000000000      0xe66 Src/main.o
- .debug_macro   0x0000000000000000     0x93f9 Src/main.o
- .debug_macro   0x0000000000000000       0x43 Src/main.o
- .debug_macro   0x0000000000000000     0x347f Src/main.o
  .debug_macro   0x0000000000000000       0x16 Src/main.o
  .debug_macro   0x0000000000000000       0x97 Src/main.o
  .debug_macro   0x0000000000000000      0x30d Src/main.o
@@ -2908,6 +2899,15 @@ Discarded input sections
  .debug_macro   0x0000000000000000       0xd7 Src/main.o
  .debug_macro   0x0000000000000000       0x16 Src/main.o
  .debug_macro   0x0000000000000000      0x189 Src/main.o
+ .debug_macro   0x0000000000000000      0x14e Src/main.o
+ .debug_macro   0x0000000000000000      0x185 Src/main.o
+ .debug_macro   0x0000000000000000       0x31 Src/main.o
+ .debug_macro   0x0000000000000000       0x28 Src/main.o
+ .debug_macro   0x0000000000000000       0x50 Src/main.o
+ .debug_macro   0x0000000000000000      0xe66 Src/main.o
+ .debug_macro   0x0000000000000000     0x93f9 Src/main.o
+ .debug_macro   0x0000000000000000       0x43 Src/main.o
+ .debug_macro   0x0000000000000000     0x347f Src/main.o
  .debug_macro   0x0000000000000000       0x50 Src/main.o
  .debug_macro   0x0000000000000000      0x964 Src/main.o
  .debug_macro   0x0000000000000000      0x9e1 Src/main.o
@@ -3567,12 +3567,12 @@ LOAD /Applications/Ac6/SystemWorkbench.app/Contents/Eclipse/plugins/fr.ac6.mcu.e
  .text.set_cs_after_communicating_with_acc
                 0x00000000080019d0       0x10 Src/main.o
                 0x00000000080019d0                set_cs_after_communicating_with_acc
- .text.read_from_acc
+ .text.read_from_acc_reg
                 0x00000000080019e0       0x44 Src/main.o
-                0x00000000080019e0                read_from_acc
- .text.write_to_acc
+                0x00000000080019e0                read_from_acc_reg
+ .text.write_to_acc_reg
                 0x0000000008001a24       0x44 Src/main.o
-                0x0000000008001a24                write_to_acc
+                0x0000000008001a24                write_to_acc_reg
  .text.acc_who_am_i
                 0x0000000008001a68        0x6 Src/main.o
                 0x0000000008001a68                acc_who_am_i
@@ -3697,15 +3697,14 @@ LOAD /Applications/Ac6/SystemWorkbench.app/Contents/Eclipse/plugins/fr.ac6.mcu.e
                 0x00000000080027c4                APBAHBPrescTable
  *(.rodata*)
  .rodata.str1.1
-                0x00000000080027d4       0x45 Src/main.o
+                0x00000000080027d4       0x47 Src/main.o
  .rodata.str1.1
-                0x0000000008002819        0x2 /Applications/Ac6/SystemWorkbench.app/Contents/Eclipse/plugins/fr.ac6.mcu.externaltools.arm-none.macos64_1.11.0.201610101357/tools/gcc-arm-none-eabi-5_4-2016q2/bin/../lib/gcc/arm-none-eabi/5.4.1/../../../../arm-none-eabi/lib/armv7e-m/fpu/libc_nano.a(lib_a-impure.o)
+                0x000000000800281b        0x2 /Applications/Ac6/SystemWorkbench.app/Contents/Eclipse/plugins/fr.ac6.mcu.externaltools.arm-none.macos64_1.11.0.201610101357/tools/gcc-arm-none-eabi-5_4-2016q2/bin/../lib/gcc/arm-none-eabi/5.4.1/../../../../arm-none-eabi/lib/armv7e-m/fpu/libc_nano.a(lib_a-impure.o)
  .rodata.str1.1
-                0x000000000800281b       0x11 /Applications/Ac6/SystemWorkbench.app/Contents/Eclipse/plugins/fr.ac6.mcu.externaltools.arm-none.macos64_1.11.0.201610101357/tools/gcc-arm-none-eabi-5_4-2016q2/bin/../lib/gcc/arm-none-eabi/5.4.1/../../../../arm-none-eabi/lib/armv7e-m/fpu/libc_nano.a(lib_a-nano-svfprintf.o)
+                0x000000000800281d       0x11 /Applications/Ac6/SystemWorkbench.app/Contents/Eclipse/plugins/fr.ac6.mcu.externaltools.arm-none.macos64_1.11.0.201610101357/tools/gcc-arm-none-eabi-5_4-2016q2/bin/../lib/gcc/arm-none-eabi/5.4.1/../../../../arm-none-eabi/lib/armv7e-m/fpu/libc_nano.a(lib_a-nano-svfprintf.o)
  .rodata.str1.1
-                0x000000000800282c       0x22 /Applications/Ac6/SystemWorkbench.app/Contents/Eclipse/plugins/fr.ac6.mcu.externaltools.arm-none.macos64_1.11.0.201610101357/tools/gcc-arm-none-eabi-5_4-2016q2/bin/../lib/gcc/arm-none-eabi/5.4.1/../../../../arm-none-eabi/lib/armv7e-m/fpu/libc_nano.a(lib_a-nano-vfprintf_i.o)
+                0x000000000800282e       0x22 /Applications/Ac6/SystemWorkbench.app/Contents/Eclipse/plugins/fr.ac6.mcu.externaltools.arm-none.macos64_1.11.0.201610101357/tools/gcc-arm-none-eabi-5_4-2016q2/bin/../lib/gcc/arm-none-eabi/5.4.1/../../../../arm-none-eabi/lib/armv7e-m/fpu/libc_nano.a(lib_a-nano-vfprintf_i.o)
                 0x0000000008002850                . = ALIGN (0x4)
- *fill*         0x000000000800284e        0x2 
 
 .rel.dyn        0x0000000008002850        0x0
  .rel.iplt      0x0000000008002850        0x0 /Applications/Ac6/SystemWorkbench.app/Contents/Eclipse/plugins/fr.ac6.mcu.externaltools.arm-none.macos64_1.11.0.201610101357/tools/gcc-arm-none-eabi-5_4-2016q2/bin/../lib/gcc/arm-none-eabi/5.4.1/armv7e-m/fpu/crtbegin.o
@@ -4065,13 +4064,13 @@ OUTPUT(LIS302DL.elf elf32-littlearm)
  .debug_macro   0x00000000000142e8       0x4a Src/main.o
  .debug_macro   0x0000000000014332       0x82 Src/main.o
  .debug_macro   0x00000000000143b4      0x45d Src/main.o
- .debug_macro   0x0000000000014811       0x3b Src/main.o
- .debug_macro   0x000000000001484c       0xa2 Src/main.o
- .debug_macro   0x00000000000148ee       0x8d Src/main.o
+ .debug_macro   0x0000000000014811       0xa2 Src/main.o
+ .debug_macro   0x00000000000148b3       0x8d Src/main.o
+ .debug_macro   0x0000000000014940       0x3b Src/main.o
  .debug_macro   0x000000000001497b      0x312 Src/stm32f4xx_hal_msp.o
  .debug_macro   0x0000000000014c8d      0x31c Src/stm32f4xx_it.o
 
-.debug_str      0x0000000000000000    0x723dd
+.debug_str      0x0000000000000000    0x723e5
  .debug_str     0x0000000000000000    0x6dfd7 Drivers/CMSIS/Device/ST/STM32F4xx/Source/Templates/system_stm32f4xx.o
                                       0x6e277 (size before relaxing)
  .debug_str     0x000000000006dfd7      0x9e3 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal.o
@@ -4090,11 +4089,11 @@ OUTPUT(LIS302DL.elf elf32-littlearm)
                                       0x6ea2b (size before relaxing)
  .debug_str     0x0000000000070b30      0x4a1 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_uart.o
                                       0x6e8d4 (size before relaxing)
- .debug_str     0x0000000000070fd1     0x1321 Src/main.o
-                                      0x7048c (size before relaxing)
- .debug_str     0x00000000000722f2       0xa3 Src/stm32f4xx_hal_msp.o
+ .debug_str     0x0000000000070fd1     0x1329 Src/main.o
+                                      0x70494 (size before relaxing)
+ .debug_str     0x00000000000722fa       0xa3 Src/stm32f4xx_hal_msp.o
                                       0x6ef24 (size before relaxing)
- .debug_str     0x0000000000072395       0x48 Src/stm32f4xx_it.o
+ .debug_str     0x000000000007239d       0x48 Src/stm32f4xx_it.o
                                       0x6e4ee (size before relaxing)
 
 .comment        0x0000000000000000       0x6e

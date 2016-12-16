@@ -31,64 +31,61 @@
  ******************************************************************************
  */
 /* Includes ------------------------------------------------------------------*/
-#include <inttypes.h>
-#include <stdio.h>
 #include "main.h"
 #include "stm32f4xx_hal.h"
+#include <string.h>
 
 /* USER CODE BEGIN Includes */
-#define SPI_TIMEOUT 20
-#define UART_TIMEOUT 50
-#define ACC_CS_GPIO_TYPE GPIOE
-#define ACC_CS_GPIO_PIN_NUMBER GPIO_PIN_3
+#define SPEAKER_RESET_GPIO_TYPE GPIOD
+#define SPEAKER_RESET_GPIO_PIN_NUMBER GPIO_PIN_4
+#define DELAY_DURATION 500
+#define I2C_TIMEOUT 50
+#define UART_TIMEOUT 100
+#define BEAT 100
+#define BEEP_VOLUME 0x1A
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
-SPI_HandleTypeDef hspi1;
+I2C_HandleTypeDef hi2c1;
 
-TIM_HandleTypeDef htim3;
+I2S_HandleTypeDef hi2s3;
+
+TIM_HandleTypeDef htim1;
 
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-uint8_t acc_write_nonincremented_address_header = 0b00;
-uint8_t acc_read_nonincremented_address_header = 0b10;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 void Error_Handler(void);
 static void MX_GPIO_Init(void);
-static void MX_SPI1_Init(void);
+static void MX_I2C1_Init(void);
+static void MX_I2S3_Init(void);
+static void MX_TIM1_Init(void);
 static void MX_USART2_UART_Init(void);
-static void MX_TIM3_Init(void);
 
 /* USER CODE BEGIN PFP */
-
 /* Private function prototypes -----------------------------------------------*/
-void set_cs_before_communicating_with_acc();
-void set_cs_after_communicating_with_acc();
-
-uint8_t read_from_acc_reg(uint8_t address);
-void write_to_acc_reg(uint8_t address, uint8_t data);
-
-uint8_t acc_who_am_i();
-void acc_init();
-
-uint8_t acc_read_x();
-uint8_t acc_read_y();
-uint8_t acc_read_z();
-
-void send_data_via_uart(char *data);
-
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
-
+void play_musical_note(int index);
+void play_musical_note_with_beat(int index, float beat);
+void write_to_speaker_reg(uint8_t address, uint8_t data);
+void speaker_init();
+void send_data_via_uart(char *data, uint16_t size);
+int character_note_index_mapping(uint8_t character);
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
 
-char string_buffer[100];
+uint8_t musical_note[] = { 0x01, 0x11, 0x21, 0x31, 0x41, 0x51, 0x61, 0x71, 0x81,
+		0x91, 0xA1, 0xB1, 0xC1, 0xD1, 0xE1, 0xF1 };
+char musical_note_name[][2] = { "C4", "C5", "D5", "E5", "F5", "G5", "A5", "B5", "C6",
+		"D6", "E6", "F6", "G6", "A6", "B6", "C7" };
+
+int is_playing = 0;
 
 /* USER CODE END 0 */
 
@@ -108,23 +105,13 @@ int main(void) {
 
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
-	MX_SPI1_Init();
+	MX_I2C1_Init();
+	MX_I2S3_Init();
+	MX_TIM1_Init();
 	MX_USART2_UART_Init();
-	MX_TIM3_Init();
 
 	/* USER CODE BEGIN 2 */
-
-	// Initialization an accelerometer
-	acc_init();
-
-	// Device Identification
-	uint8_t device_id = acc_who_am_i();
-	sprintf(string_buffer, "Device Identification: %d\n", device_id);
-	send_data_via_uart(string_buffer);
-
-	// Start timer3
-	HAL_TIM_Base_Start_IT(&htim3);
-
+	speaker_init();
 	/* USER CODE END 2 */
 
 	/* Infinite loop */
@@ -133,7 +120,16 @@ int main(void) {
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
-
+		uint8_t data;
+		if (HAL_UART_Receive(&huart2, &data, 1, UART_TIMEOUT) == HAL_OK
+				&& !is_playing) {
+			is_playing = 1;
+			int index = character_note_index_mapping(data);
+			play_musical_note(index);
+			send_data_via_uart(musical_note_name[index], 2);
+			send_data_via_uart("\n", 1);
+			HAL_Delay(100);
+		}
 	}
 	/* USER CODE END 3 */
 
@@ -145,6 +141,7 @@ void SystemClock_Config(void) {
 
 	RCC_OscInitTypeDef RCC_OscInitStruct;
 	RCC_ClkInitTypeDef RCC_ClkInitStruct;
+	RCC_PeriphCLKInitTypeDef PeriphClkInitStruct;
 
 	/**Configure the main internal regulator output voltage
 	 */
@@ -174,10 +171,17 @@ void SystemClock_Config(void) {
 			| RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
 	RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
 	RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+	RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
 	RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
 	if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK) {
+		Error_Handler();
+	}
+
+	PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_I2S;
+	PeriphClkInitStruct.PLLI2S.PLLI2SN = 88;
+	PeriphClkInitStruct.PLLI2S.PLLI2SR = 4;
+	if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK) {
 		Error_Handler();
 	}
 
@@ -193,50 +197,66 @@ void SystemClock_Config(void) {
 	HAL_NVIC_SetPriority(SysTick_IRQn, 0, 0);
 }
 
-/* SPI1 init function */
-static void MX_SPI1_Init(void) {
+/* I2C1 init function */
+static void MX_I2C1_Init(void) {
 
-	hspi1.Instance = SPI1;
-	hspi1.Init.Mode = SPI_MODE_MASTER;
-	hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-	hspi1.Init.DataSize = SPI_DATASIZE_8BIT;
-	hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-	hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-	hspi1.Init.NSS = SPI_NSS_SOFT;
-	hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
-	hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
-	hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
-	hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-	hspi1.Init.CRCPolynomial = 10;
-	if (HAL_SPI_Init(&hspi1) != HAL_OK) {
+	hi2c1.Instance = I2C1;
+	hi2c1.Init.ClockSpeed = 50000;
+	hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+	hi2c1.Init.OwnAddress1 = 0;
+	hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+	hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+	hi2c1.Init.OwnAddress2 = 0;
+	hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+	hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+	if (HAL_I2C_Init(&hi2c1) != HAL_OK) {
 		Error_Handler();
 	}
 
 }
 
-/* TIM3 init function */
-static void MX_TIM3_Init(void) {
+/* I2S3 init function */
+static void MX_I2S3_Init(void) {
+
+	hi2s3.Instance = SPI3;
+	hi2s3.Init.Mode = I2S_MODE_MASTER_TX;
+	hi2s3.Init.Standard = I2S_STANDARD_PHILIPS;
+	hi2s3.Init.DataFormat = I2S_DATAFORMAT_16B;
+	hi2s3.Init.MCLKOutput = I2S_MCLKOUTPUT_ENABLE;
+	hi2s3.Init.AudioFreq = I2S_AUDIOFREQ_44K;
+	hi2s3.Init.CPOL = I2S_CPOL_LOW;
+	hi2s3.Init.ClockSource = I2S_CLOCK_PLL;
+	hi2s3.Init.FullDuplexMode = I2S_FULLDUPLEXMODE_DISABLE;
+	if (HAL_I2S_Init(&hi2s3) != HAL_OK) {
+		Error_Handler();
+	}
+
+}
+
+/* TIM1 init function */
+static void MX_TIM1_Init(void) {
 
 	TIM_ClockConfigTypeDef sClockSourceConfig;
 	TIM_MasterConfigTypeDef sMasterConfig;
 
-	htim3.Instance = TIM3;
-	htim3.Init.Prescaler = 249;
-	htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-	htim3.Init.Period = 999;
-	htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-	if (HAL_TIM_Base_Init(&htim3) != HAL_OK) {
+	htim1.Instance = TIM1;
+	htim1.Init.Prescaler = 0;
+	htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+	htim1.Init.Period = 0;
+	htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+	htim1.Init.RepetitionCounter = 0;
+	if (HAL_TIM_Base_Init(&htim1) != HAL_OK) {
 		Error_Handler();
 	}
 
 	sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-	if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK) {
+	if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK) {
 		Error_Handler();
 	}
 
 	sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
 	sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-	if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK) {
+	if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK) {
 		Error_Handler();
 	}
 
@@ -266,17 +286,14 @@ static void MX_USART2_UART_Init(void) {
  * EVENT_OUT
  * EXTI
  PC3   ------> I2S2_SD
- PA4   ------> I2S3_WS
+ PA5   ------> SPI1_SCK
+ PA6   ------> SPI1_MISO
+ PA7   ------> SPI1_MOSI
  PB10   ------> I2S2_CK
- PC7   ------> I2S3_MCK
  PA9   ------> USB_OTG_FS_VBUS
  PA10   ------> USB_OTG_FS_ID
  PA11   ------> USB_OTG_FS_DM
  PA12   ------> USB_OTG_FS_DP
- PC10   ------> I2S3_CK
- PC12   ------> I2S3_SD
- PB6   ------> I2C1_SCL
- PB9   ------> I2C1_SDA
  */
 static void MX_GPIO_Init(void) {
 
@@ -329,12 +346,12 @@ static void MX_GPIO_Init(void) {
 	GPIO_InitStruct.Alternate = GPIO_AF5_SPI2;
 	HAL_GPIO_Init(PDM_OUT_GPIO_Port, &GPIO_InitStruct);
 
-	/*Configure GPIO pin : PA4 */
-	GPIO_InitStruct.Pin = GPIO_PIN_4;
+	/*Configure GPIO pins : PA5 PA6 PA7 */
+	GPIO_InitStruct.Pin = GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
 	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	GPIO_InitStruct.Alternate = GPIO_AF6_SPI3;
+	GPIO_InitStruct.Alternate = GPIO_AF5_SPI1;
 	HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 	/*Configure GPIO pin : BOOT1_Pin */
@@ -359,14 +376,6 @@ static void MX_GPIO_Init(void) {
 	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
 	HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
-	/*Configure GPIO pins : PC7 I2S3_SCK_Pin PC12 */
-	GPIO_InitStruct.Pin = GPIO_PIN_7 | I2S3_SCK_Pin | GPIO_PIN_12;
-	GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
-	GPIO_InitStruct.Pull = GPIO_NOPULL;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	GPIO_InitStruct.Alternate = GPIO_AF6_SPI3;
-	HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
-
 	/*Configure GPIO pin : VBUS_FS_Pin */
 	GPIO_InitStruct.Pin = VBUS_FS_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -387,14 +396,6 @@ static void MX_GPIO_Init(void) {
 	GPIO_InitStruct.Pull = GPIO_NOPULL;
 	HAL_GPIO_Init(OTG_FS_OverCurrent_GPIO_Port, &GPIO_InitStruct);
 
-	/*Configure GPIO pins : Audio_SCL_Pin Audio_SDA_Pin */
-	GPIO_InitStruct.Pin = Audio_SCL_Pin | Audio_SDA_Pin;
-	GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
-	GPIO_InitStruct.Pull = GPIO_PULLUP;
-	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-	GPIO_InitStruct.Alternate = GPIO_AF4_I2C1;
-	HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
 	/*Configure GPIO pin : MEMS_INT1_Pin */
 	GPIO_InitStruct.Pin = MEMS_INT1_Pin;
 	GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
@@ -411,107 +412,127 @@ static void MX_GPIO_Init(void) {
 
 /* USER CODE BEGIN 4 */
 
-/**
- * @brief  Set CS before communicating with an accelerometer.
- * @param  None
- * @retval None
- */
-void set_cs_before_communicating_with_acc() {
-	// Set to low
-	HAL_GPIO_WritePin(ACC_CS_GPIO_TYPE, ACC_CS_GPIO_PIN_NUMBER, GPIO_PIN_RESET);
+int character_note_index_mapping(uint8_t character) {
+	if (character == 'a')
+		return 1;
+	else if (character == 's')
+		return 2;
+	else if (character == 'd')
+		return 3;
+	else if (character == 'f')
+		return 4;
+	else if (character == 'g')
+		return 5;
+	else if (character == 'h')
+		return 6;
+	else if (character == 'j')
+		return 7;
+	else if (character == 'k')
+		return 8;
+	else if (character == 'l')
+		return 9;
+	else if (character == 'z')
+		return 10;
+	else if (character == 'x')
+		return 11;
+	else if (character == 'c')
+		return 12;
+	else if (character == 'v')
+		return 13;
+	else if (character == 'b')
+		return 14;
+	else if (character == 'n')
+		return 15;
+	else if (character == 'm')
+		return 0;
+	else
+		return -1;
 }
 
-/**
- * @brief  Set CS after communicating with an accelerometer.
- * @param  None
- * @retval None
- */
-void set_cs_after_communicating_with_acc() {
-	// Set to high
-	HAL_GPIO_WritePin(ACC_CS_GPIO_TYPE, ACC_CS_GPIO_PIN_NUMBER, GPIO_PIN_SET);
+void play_musical_note(int index) {
+	if (index < 0 || index > 15) {
+		is_playing = 0;
+		return;
+	}
+
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
+
+	// Beep Mix Disable: disable
+	write_to_speaker_reg(0x1E, 0x20);
+	write_to_speaker_reg(0x1C, musical_note[index]);
+	// Beep Configuration: continuous
+	write_to_speaker_reg(0x1E, 0xE0);
+
+	int i;
+	for (i = 0; i < BEAT; i++) {
+		HAL_I2S_Transmit(&hi2s3, (uint16_t *) "a", 100, I2C_TIMEOUT);
+	}
+	is_playing = 0;
 }
 
-/**
- * @brief  Read data from an specific accelerometer register.
- * @param  address: register address to be read
- * @retval a byte of read data
- */
-uint8_t read_from_acc_reg(uint8_t address) {
-	set_cs_before_communicating_with_acc();
-	uint8_t acc_address_data = (acc_read_nonincremented_address_header << 6) | address;
-	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
+void play_musical_note_with_beat(int index, float beat) {
+	if (index < -1 || index > 15) {
+		is_playing = 0;
+		return;
+	}
 
-	uint8_t acc_do_data;
-	HAL_SPI_Receive(&hspi1, &acc_do_data, 1, SPI_TIMEOUT);
-	set_cs_after_communicating_with_acc();
-	return acc_do_data;
+	int cycles_compromise = (int) (beat * 600);
+	if (index == -1) {
+		int i;
+		for (i = 0; i < cycles_compromise; i++)
+			;
+		is_playing = 0;
+		return;
+	}
+
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
+
+	// Beep Mix Disable: disable
+	write_to_speaker_reg(0x1E, 0x20);
+	write_to_speaker_reg(0x1C, musical_note[index]);
+	// Beep Configuration: continuous
+	write_to_speaker_reg(0x1E, 0xE0);
+
+	int i;
+	// Beats
+	// int cycles = (int) (beat * ((60 / bpm) / clock));
+	for (i = 0; i < cycles_compromise; i++) {
+		HAL_I2S_Transmit(&hi2s3, (uint16_t *) "a", 100, I2C_TIMEOUT);
+	}
+	is_playing = 0;
 }
 
-/**
- * @brief  Write data to an specific accelerometer register.
- * @param  address: register address to be written
- * @param  data: data to be written
- * @retval None
- */
-void write_to_acc_reg(uint8_t address, uint8_t data) {
-	set_cs_before_communicating_with_acc();
-	uint8_t acc_address_data = (acc_write_nonincremented_address_header << 6) | address;
-	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
-
-	uint8_t acc_di_data = data;
-	HAL_SPI_Receive(&hspi1, &acc_di_data, 1, SPI_TIMEOUT);
-	set_cs_after_communicating_with_acc();
+void write_to_speaker_reg(uint8_t address, uint8_t data) {
+	// Chip address: 100101 followed by the setting of the AD0 pin (0) and R/W bit
+	uint8_t chip_address = 0b10010100;
+	uint8_t data_concat[2] = { address, data };
+	HAL_I2C_Master_Transmit(&hi2c1, chip_address, data_concat, 2, I2C_TIMEOUT);
 }
 
-/**
- * @brief  Fetch data from WHO_AM_I register to identify an accelerometer device.
- * @param  None
- * @retval None
- */
-uint8_t acc_who_am_i() {
-	uint8_t who_am_i_reg_addr = 0x0F;
-	return read_from_acc_reg(who_am_i_reg_addr);
-}
+void speaker_init() {
+	// Reset
+	HAL_GPIO_WritePin(SPEAKER_RESET_GPIO_TYPE, SPEAKER_RESET_GPIO_PIN_NUMBER,
+			GPIO_PIN_RESET);
+	HAL_Delay(DELAY_DURATION);
+	HAL_GPIO_WritePin(SPEAKER_RESET_GPIO_TYPE, SPEAKER_RESET_GPIO_PIN_NUMBER,
+			GPIO_PIN_SET);
+	HAL_Delay(DELAY_DURATION);
 
-/**
- * @brief  Initialize accelerometer.
- * @param  None
- * @retval None
- */
-void acc_init() {
-	uint8_t ctrl_reg1_reg_addr = 0x20;
-	uint8_t ctrl_reg1_reg_data = 0b01000111;
-	write_to_acc_reg(ctrl_reg1_reg_addr, ctrl_reg1_reg_data);
-}
+	// Load the required initialization settings according to section 4.11 in data sheet
+	write_to_speaker_reg(0x00, 0x99);
+	write_to_speaker_reg(0x47, 0x80);
+	write_to_speaker_reg(0x32, 0b10111011);
+	write_to_speaker_reg(0x32, 0b00111011);
+	write_to_speaker_reg(0x00, 0x00);
 
-/**
- * @brief  Read x-axis acceleration.
- * @param  None
- * @retval x-axis acceleration
- */
-uint8_t acc_read_x() {
-	uint8_t out_x_reg_addr = 0x29;
-	return read_from_acc_reg(out_x_reg_addr);
-}
+	// Beep & Tone Configuration: set BEEP[1:0] to 11 (continuous)
+	write_to_speaker_reg(0x1E, 0xC0);
 
-/**
- * @brief  Read y-axis acceleration.
- * @param  None
- * @retval y-axis acceleration
- */
-uint8_t acc_read_y() {
-	uint8_t out_y_reg_addr = 0x2B;
-	return read_from_acc_reg(out_y_reg_addr);
-}
+	// Change beep volume
+	write_to_speaker_reg(0x1D, BEEP_VOLUME);
 
-/**
- * @brief  Read z-axis acceleration.
- * @param  None
- * @retval z-axis acceleration
- */
-uint8_t acc_read_z() {
-	uint8_t out_z_reg_addr = 0x2D;
-	return read_from_acc_reg(out_z_reg_addr);
+	// Set the “Power Ctl 1” register (0x02) to 0x9E
+	write_to_speaker_reg(0x02, 0x9E);
 }
 
 /**
@@ -519,38 +540,8 @@ uint8_t acc_read_z() {
  * @param  data: data to be sent
  * @retval None
  */
-void send_data_via_uart(char *data) {
-	int i = 0;
-	while (data[i] != '\0') {
-		HAL_UART_Transmit(&huart2, (uint8_t *) &data[i++], 1, UART_TIMEOUT);
-	}
-}
-
-/**
- * @brief  Read accerelation data and send them via UART.
- * @param  None
- * @retval None
- */
-void read_acceleration_and_send() {
-	uint8_t x_acc, y_acc, z_acc;
-	// Read acceleration data
-	x_acc = acc_read_x();
-	y_acc = acc_read_y();
-	z_acc = acc_read_z();
-	sprintf(string_buffer, "x-axis: %03d,  y-axis: %03d,  z-axis: %03d\n", x_acc, y_acc, z_acc);
-	send_data_via_uart(string_buffer);
-}
-
-/**
- * @brief  (Override) Period elapsed callback in non blocking mode
- * @param  htim: pointer to a TIM_HandleTypeDef structure that contains
- *               the configuration information for TIM module.
- * @retval None
- */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-	if (htim->Instance == TIM3) {
-		read_acceleration_and_send();
-	}
+void send_data_via_uart(char *data, uint16_t size) {
+	HAL_UART_Transmit(&huart2, (uint8_t *) data, size, UART_TIMEOUT);
 }
 
 /* USER CODE END 4 */
