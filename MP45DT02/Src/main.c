@@ -33,10 +33,10 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f4xx_hal.h"
-#include <string.h>
-#include <math.h>
 
 /* USER CODE BEGIN Includes */
+#include <string.h>
+#include <math.h>
 #define UART_TIMEOUT 20
 #define I2S_TIMEOUT 1000
 #define PDM_BUFFER_SIZE 20

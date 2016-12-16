@@ -36,6 +36,8 @@
 
 /* USER CODE BEGIN Includes */
 // Common
+#include <math.h>
+#include <string.h>
 #define SPI_TIMEOUT 20
 #define I2C_TIMEOUT 50
 #define UART_TIMEOUT 100
@@ -50,13 +52,18 @@
 #define PCM_BUFFER_SIZE 2500
 #define LEAKY_KEEP_RATE 0.95
 #define PDM_STREAM_BLOCK_SIZE_BIT 8
+#define LOUD_THRESHOLD 40
 
 // CS43L22: Speaker
 #define SPEAKER_RESET_GPIO_TYPE GPIOD
 #define SPEAKER_RESET_GPIO_PIN_NUMBER GPIO_PIN_4
 #define DELAY_DURATION 500
 #define BEAT 100
-#define BEEP_VOLUME 0x07
+#define BEEP_VOLUME 0x1A
+
+// Game
+#define AREA_WIDTH 30
+#define AREA_HEIGHT 50
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -83,13 +90,13 @@ uint8_t acc_read_nonincremented_address_header = 0b10;
 void SystemClock_Config(void);
 void Error_Handler(void);
 static void MX_GPIO_Init(void);
-static void MX_TIM1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_I2S3_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_I2S2_Init(void);
+static void MX_TIM1_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
@@ -107,6 +114,7 @@ void acc_init();
 int8_t acc_read_x();
 int8_t acc_read_y();
 int8_t acc_read_z();
+void show_acc_led_indicator(int8_t x_acc, int8_t y_acc, int8_t z_acc);
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 
 // MP45DT02: Microphone
@@ -121,11 +129,25 @@ void write_to_speaker_reg(uint8_t address, uint8_t data);
 void speaker_init();
 int character_note_index_mapping(uint8_t character);
 
+// Game
+void print_area();
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
 // Common
 char uart_buffer[100];
+
+// MP45DT02: Microphone
+uint16_t pdm_buffer[PDM_BUFFER_SIZE];
+uint16_t pdm_value = 0;
+int8_t pcm_value = 0;
+uint16_t pcm_count = 0;
+
+float leaky_pcm_buffer = 0.0; // For PDM moving average
+float leaky_amp_buffer = 0.0; // For |PCM| moving average
+
+double pcm_square = 0;
+float max_amp = 0;
 
 // CS43L22: Speaker
 uint8_t musical_note[] = { 0x01, 0x11, 0x21, 0x31, 0x41, 0x51, 0x61, 0x71, 0x81,
@@ -133,6 +155,9 @@ uint8_t musical_note[] = { 0x01, 0x11, 0x21, 0x31, 0x41, 0x51, 0x61, 0x71, 0x81,
 char musical_note_name[][2] = { "C4", "C5", "D5", "E5", "F5", "G5", "A5", "B5", "C6",
 		"D6", "E6", "F6", "G6", "A6", "B6", "C7" };
 int is_playing = 0;
+
+// Game
+int area[AREA_HEIGHT][AREA_WIDTH];
 /* USER CODE END 0 */
 
 int main(void)
@@ -142,17 +167,6 @@ int main(void)
 	// Common
 	int i;
 
-	// MP45DT02: Microphone
-	uint16_t pdm_buffer[PDM_BUFFER_SIZE];
-	uint16_t pdm_value = 0;
-	int8_t pcm_value = 0;
-	uint16_t pcm_count = 0;
-
-	float leaky_pcm_buffer = 0.0; // For PDM moving average
-	float leaky_amp_buffer = 0.0; // For |PCM| moving average
-
-	double pcm_square = 0;
-	float max_amp = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -165,19 +179,19 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_TIM1_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
   MX_I2S3_Init();
   MX_SPI1_Init();
   MX_TIM3_Init();
   MX_I2S2_Init();
+  MX_TIM1_Init();
 
   /* USER CODE BEGIN 2 */
   // Initialize
   acc_init();
   speaker_init();
-
+  i = 0;
   // Start timer3 for accelerometer
   HAL_TIM_Base_Start_IT(&htim3);
 
@@ -190,7 +204,23 @@ int main(void)
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
+//		if (!is_playing) {
+//			is_playing = 1;
+//			play_musical_note_with_beat(note[i], beat[i]);
+//			i = (i + 1) % number_of_note;
+//		}
 
+  	// Play note
+//		uint8_t data;
+//		if (HAL_UART_Receive(&huart2, &data, 1, UART_TIMEOUT) == HAL_OK
+//				&& !is_playing) {
+//			is_playing = 1;
+//			int index = character_note_index_mapping(data);
+//			play_musical_note(index);
+//			send_data_via_uart_with_size(musical_note_name[index], 2);
+//			send_data_via_uart_with_size("\n", 1);
+//			HAL_Delay(100);
+//		}
   }
   /* USER CODE END 3 */
 
@@ -233,7 +263,7 @@ void SystemClock_Config(void)
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
@@ -307,7 +337,7 @@ static void MX_I2S3_Init(void)
 
   hi2s3.Instance = SPI3;
   hi2s3.Init.Mode = I2S_MODE_MASTER_TX;
-  hi2s3.Init.Standard = I2S_STANDARD_PHILIPS;
+  hi2s3.Init.Standard = I2S_STANDARD_MSB;
   hi2s3.Init.DataFormat = I2S_DATAFORMAT_16B;
   hi2s3.Init.MCLKOutput = I2S_MCLKOUTPUT_ENABLE;
   hi2s3.Init.AudioFreq = I2S_AUDIOFREQ_44K;
@@ -679,8 +709,36 @@ void read_acceleration_and_send() {
 	x_acc = acc_read_x();
 	y_acc = acc_read_y();
 	z_acc = acc_read_z();
-	sprintf(uart_buffer, "x-axis: %d, y-axis: %d, z-axis: %d\n", x_acc, y_acc, z_acc);
-	send_data_via_uart(uart_buffer);
+	// sprintf(uart_buffer, "x-axis: %d, y-axis: %d, z-axis: %d\n", x_acc, y_acc, z_acc);
+	// send_data_via_uart(uart_buffer);
+	show_acc_led_indicator(x_acc, y_acc, z_acc);
+}
+
+void show_acc_led_indicator(int8_t x_acc, int8_t y_acc, int8_t z_acc) {
+	// Left
+	if(x_acc < 0) {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET); // Green LED
+	} else {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET); // Green LED
+	}
+	// Right
+	if(x_acc > 0) {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET); // Red LED
+	} else {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET); // Red LED
+	}
+	// Bottom
+	if(y_acc < 0) {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET); // Blue LED
+	} else {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET); // Blue LED
+	}
+	// Top
+	if(y_acc > 0) {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET); // Orange LED
+	} else {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET); // Orange LED
+	}
 }
 
 /**
@@ -723,6 +781,16 @@ uint16_t read_pdm() {
 	uint16_t pdm_stream;
 	HAL_I2S_Receive(&hi2s2, &pdm_stream, 1, I2S_TIMEOUT);
 	return pdm_stream;
+}
+
+uint8_t is_loud() {
+	int i = 0;
+	int volume_accumulate = 0;
+	for(; i < 8; i++) {
+		uint16_t pdm_stream = read_pdm();
+		volume_accumulate += calculate_volume(pdm_stream);
+	}
+	return volume_accumulate > LOUD_THRESHOLD;
 }
 
 // CS43L22: Speaker
@@ -847,6 +915,22 @@ void speaker_init() {
 
 	// Set the “Power Ctl 1” register (0x02) to 0x9E
 	write_to_speaker_reg(0x02, 0x9E);
+}
+
+// Game
+void print_area() {
+	uint8_t i = 0;
+	for(; i < AREA_HEIGHT; i++) {
+		send_data_via_uart_with_size((char *) area[i], AREA_WIDTH);
+		send_data_via_uart_with_size("\n", 1);
+	}
+}
+
+void flush_screen() {
+	uint8_t i = 0;
+	for(; i < AREA_HEIGHT + 20; i++) {
+		send_data_via_uart_with_size("\n", 1);
+	}
 }
 
 /* USER CODE END 4 */

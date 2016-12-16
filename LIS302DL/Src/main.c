@@ -73,16 +73,13 @@ void set_cs_after_communicating_with_acc();
 uint8_t read_from_acc_reg(uint8_t address);
 int8_t read_from_acc_reg_with_sign(uint8_t address);
 void write_to_acc_reg(uint8_t address, uint8_t data);
-
 uint8_t acc_who_am_i();
 void acc_init();
-
 int8_t acc_read_x();
 int8_t acc_read_y();
 int8_t acc_read_z();
-
+void show_acc_led_indicator(int8_t x_acc, int8_t y_acc, int8_t z_acc)
 void send_data_via_uart(char *data);
-
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 
 /* USER CODE END PFP */
@@ -556,6 +553,34 @@ void read_acceleration_and_send() {
 	z_acc = acc_read_z();
 	sprintf(string_buffer, "x-axis: %d, y-axis: %d, z-axis: %d\n", x_acc, y_acc, z_acc);
 	send_data_via_uart(string_buffer);
+	show_acc_led_indicator(x_acc, y_acc, z_acc);
+}
+
+void show_acc_led_indicator(int8_t x_acc, int8_t y_acc, int8_t z_acc) {
+	// Left
+	if(x_acc < 0) {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET); // Green LED
+	} else {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_RESET); // Green LED
+	}
+	// Right
+	if(x_acc > 0) {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_SET); // Red LED
+	} else {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_14, GPIO_PIN_RESET); // Red LED
+	}
+	// Bottom
+	if(y_acc < 0) {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_SET); // Blue LED
+	} else {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_15, GPIO_PIN_RESET); // Blue LED
+	}
+	// Top
+	if(y_acc > 0) {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_SET); // Orange LED
+	} else {
+		HAL_GPIO_WritePin(GPIOD, GPIO_PIN_13, GPIO_PIN_RESET); // Orange LED
+	}
 }
 
 /**
