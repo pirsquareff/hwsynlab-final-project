@@ -35,7 +35,28 @@
 #include "stm32f4xx_hal.h"
 
 /* USER CODE BEGIN Includes */
+// Common
+#define SPI_TIMEOUT 20
+#define I2C_TIMEOUT 50
+#define UART_TIMEOUT 100
+#define I2S_TIMEOUT 1000
 
+// LIS302DL: Accelerometer
+#define ACC_CS_GPIO_TYPE GPIOE
+#define ACC_CS_GPIO_PIN_NUMBER GPIO_PIN_3
+
+// MP45DT02: Microphone
+#define PDM_BUFFER_SIZE 20
+#define PCM_BUFFER_SIZE 2500
+#define LEAKY_KEEP_RATE 0.95
+#define PDM_STREAM_BLOCK_SIZE_BIT 8
+
+// CS43L22: Speaker
+#define SPEAKER_RESET_GPIO_TYPE GPIOD
+#define SPEAKER_RESET_GPIO_PIN_NUMBER GPIO_PIN_4
+#define DELAY_DURATION 500
+#define BEAT 100
+#define BEEP_VOLUME 0x07
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -53,7 +74,9 @@ UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
 /* Private variables ---------------------------------------------------------*/
-
+// LIS302DL: Accelerometer
+uint8_t acc_write_nonincremented_address_header = 0b00;
+uint8_t acc_read_nonincremented_address_header = 0b10;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -70,18 +93,66 @@ static void MX_I2S2_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
+// Common
+void send_data_via_uart(char *data);
+void send_data_via_uart_with_size(char *data, uint16_t size);
+
+// LIS302DL: Accelerometer
+void set_cs_before_communicating_with_acc();
+void set_cs_after_communicating_with_acc();
+uint8_t read_from_acc_reg(uint8_t address);
+void write_to_acc_reg(uint8_t address, uint8_t data);
+uint8_t acc_who_am_i();
+void acc_init();
+int8_t acc_read_x();
+int8_t acc_read_y();
+int8_t acc_read_z();
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
+
+// MP45DT02: Microphone
+uint16_t read_pdm();
+int calculate_volume(uint16_t data);
+float abs_float(float in);
+
+// CS43L22: Speaker
+void play_musical_note(int index);
+void play_musical_note_with_beat(int index, float beat);
+void write_to_speaker_reg(uint8_t address, uint8_t data);
+void speaker_init();
+int character_note_index_mapping(uint8_t character);
 
 /* USER CODE END PFP */
 
 /* USER CODE BEGIN 0 */
+// Common
+char uart_buffer[100];
 
+// CS43L22: Speaker
+uint8_t musical_note[] = { 0x01, 0x11, 0x21, 0x31, 0x41, 0x51, 0x61, 0x71, 0x81,
+		0x91, 0xA1, 0xB1, 0xC1, 0xD1, 0xE1, 0xF1 };
+char musical_note_name[][2] = { "C4", "C5", "D5", "E5", "F5", "G5", "A5", "B5", "C6",
+		"D6", "E6", "F6", "G6", "A6", "B6", "C7" };
+int is_playing = 0;
 /* USER CODE END 0 */
 
 int main(void)
 {
 
   /* USER CODE BEGIN 1 */
+	// Common
+	int i;
 
+	// MP45DT02: Microphone
+	uint16_t pdm_buffer[PDM_BUFFER_SIZE];
+	uint16_t pdm_value = 0;
+	int8_t pcm_value = 0;
+	uint16_t pcm_count = 0;
+
+	float leaky_pcm_buffer = 0.0; // For PDM moving average
+	float leaky_amp_buffer = 0.0; // For |PCM| moving average
+
+	double pcm_square = 0;
+	float max_amp = 0;
   /* USER CODE END 1 */
 
   /* MCU Configuration----------------------------------------------------------*/
@@ -103,6 +174,12 @@ int main(void)
   MX_I2S2_Init();
 
   /* USER CODE BEGIN 2 */
+  // Initialize
+  acc_init();
+  speaker_init();
+
+  // Start timer3 for accelerometer
+  HAL_TIM_Base_Start_IT(&htim3);
 
   /* USER CODE END 2 */
 
@@ -449,6 +526,328 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+// Common
+/**
+ * @brief  Send data via UART.
+ * @param  data: data to be sent
+ * @retval None
+ */
+void send_data_via_uart(char *data) {
+	int i = 0;
+	while (data[i] != '\0') {
+		HAL_UART_Transmit(&huart2, (uint8_t *) &data[i++], 1, UART_TIMEOUT);
+	}
+}
+
+/**
+ * @brief  Send data via UART.
+ * @param  data: data to be sent
+ * @retval None
+ */
+void send_data_via_uart_with_size(char *data, uint16_t size) {
+	HAL_UART_Transmit(&huart2, (uint8_t *) data, size, UART_TIMEOUT);
+}
+
+// LIS302DL: Accelerometer
+/**
+ * @brief  Set CS before communicating with an accelerometer.
+ * @param  None
+ * @retval None
+ */
+void set_cs_before_communicating_with_acc() {
+	// Set to low
+	HAL_GPIO_WritePin(ACC_CS_GPIO_TYPE, ACC_CS_GPIO_PIN_NUMBER, GPIO_PIN_RESET);
+}
+
+/**
+ * @brief  Set CS after communicating with an accelerometer.
+ * @param  None
+ * @retval None
+ */
+void set_cs_after_communicating_with_acc() {
+	// Set to high
+	HAL_GPIO_WritePin(ACC_CS_GPIO_TYPE, ACC_CS_GPIO_PIN_NUMBER, GPIO_PIN_SET);
+}
+
+/**
+ * @brief  Read data from an specific accelerometer register.
+ * @param  address: register address to be read
+ * @retval a byte of read data
+ */
+uint8_t read_from_acc_reg(uint8_t address) {
+	set_cs_before_communicating_with_acc();
+	uint8_t acc_address_data = (acc_read_nonincremented_address_header << 6) | address;
+	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
+
+	uint8_t acc_do_data;
+	HAL_SPI_Receive(&hspi1, &acc_do_data, 1, SPI_TIMEOUT);
+	set_cs_after_communicating_with_acc();
+	return acc_do_data;
+}
+
+/**
+ * @brief  Read data from an specific accelerometer register.
+ * @param  address: register address to be read
+ * @retval a byte of read data
+ */
+int8_t read_from_acc_reg_with_sign(uint8_t address) {
+	set_cs_before_communicating_with_acc();
+	uint8_t acc_address_data = (acc_read_nonincremented_address_header << 6) | address;
+	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
+
+	int8_t acc_do_data;
+	HAL_SPI_Receive(&hspi1, &acc_do_data, 1, SPI_TIMEOUT);
+	set_cs_after_communicating_with_acc();
+	return acc_do_data;
+}
+
+/**
+ * @brief  Write data to an specific accelerometer register.
+ * @param  address: register address to be written
+ * @param  data: data to be written
+ * @retval None
+ */
+void write_to_acc_reg(uint8_t address, uint8_t data) {
+	set_cs_before_communicating_with_acc();
+	uint8_t acc_address_data = (acc_write_nonincremented_address_header << 6) | address;
+	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
+
+	uint8_t acc_di_data = data;
+	HAL_SPI_Receive(&hspi1, &acc_di_data, 1, SPI_TIMEOUT);
+	set_cs_after_communicating_with_acc();
+}
+
+/**
+ * @brief  Fetch data from WHO_AM_I register to identify an accelerometer device.
+ * @param  None
+ * @retval None
+ */
+uint8_t acc_who_am_i() {
+	uint8_t who_am_i_reg_addr = 0x0F;
+	return read_from_acc_reg(who_am_i_reg_addr);
+}
+
+/**
+ * @brief  Initialize accelerometer.
+ * @param  None
+ * @retval None
+ */
+void acc_init() {
+	uint8_t ctrl_reg1_reg_addr = 0x20;
+	uint8_t ctrl_reg1_reg_data = 0b01000111;
+	write_to_acc_reg(ctrl_reg1_reg_addr, ctrl_reg1_reg_data);
+}
+
+/**
+ * @brief  Read x-axis acceleration.
+ * @param  None
+ * @retval x-axis acceleration
+ */
+int8_t acc_read_x() {
+	uint8_t out_x_reg_addr = 0x29;
+	return read_from_acc_reg_with_sign(out_x_reg_addr);
+}
+
+/**
+ * @brief  Read y-axis acceleration.
+ * @param  None
+ * @retval y-axis acceleration
+ */
+int8_t acc_read_y() {
+	uint8_t out_y_reg_addr = 0x2B;
+	return read_from_acc_reg_with_sign(out_y_reg_addr);
+}
+
+/**
+ * @brief  Read z-axis acceleration.
+ * @param  None
+ * @retval z-axis acceleration
+ */
+int8_t acc_read_z() {
+	uint8_t out_z_reg_addr = 0x2D;
+	return read_from_acc_reg_with_sign(out_z_reg_addr);
+}
+
+/**
+ * @brief  Read accerelation data and send them via UART.
+ * @param  None
+ * @retval None
+ */
+void read_acceleration_and_send() {
+	int8_t x_acc, y_acc, z_acc;
+	// Read acceleration data
+	x_acc = acc_read_x();
+	y_acc = acc_read_y();
+	z_acc = acc_read_z();
+	sprintf(uart_buffer, "x-axis: %d, y-axis: %d, z-axis: %d\n", x_acc, y_acc, z_acc);
+	send_data_via_uart(uart_buffer);
+}
+
+/**
+ * @brief  (Override) Period elapsed callback in non blocking mode
+ * @param  htim: pointer to a TIM_HandleTypeDef structure that contains
+ *               the configuration information for TIM module.
+ * @retval None
+ */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+	if (htim->Instance == TIM3) {
+		read_acceleration_and_send();
+	}
+}
+
+// MP45DT02: Microphone
+float abs_float(float in) {
+	return in < 0 ? -in : in;
+}
+
+/**
+ * @brief  Calculate volume from PDM stream.
+ * @param  data: PDM stream
+ * @retval Volume (no unit)
+ */
+int calculate_volume(uint16_t data) {
+	int i, volume = 0;
+	for (i = 0; i < 16; i++) {
+		volume += data % 2;
+		data /= 2;
+	}
+	return volume;
+}
+
+/**
+ * @brief  Read PDM stream from microphone module.
+ * @param  None
+ * @retval 16-bit PDM
+ */
+uint16_t read_pdm() {
+	uint16_t pdm_stream;
+	HAL_I2S_Receive(&hi2s2, &pdm_stream, 1, I2S_TIMEOUT);
+	return pdm_stream;
+}
+
+// CS43L22: Speaker
+int character_note_index_mapping(uint8_t character) {
+	if (character == 'a')
+		return 1;
+	else if (character == 's')
+		return 2;
+	else if (character == 'd')
+		return 3;
+	else if (character == 'f')
+		return 4;
+	else if (character == 'g')
+		return 5;
+	else if (character == 'h')
+		return 6;
+	else if (character == 'j')
+		return 7;
+	else if (character == 'k')
+		return 8;
+	else if (character == 'l')
+		return 9;
+	else if (character == 'z')
+		return 10;
+	else if (character == 'x')
+		return 11;
+	else if (character == 'c')
+		return 12;
+	else if (character == 'v')
+		return 13;
+	else if (character == 'b')
+		return 14;
+	else if (character == 'n')
+		return 15;
+	else if (character == 'm')
+		return 0;
+	else
+		return -1;
+}
+
+void play_musical_note(int index) {
+	if (index < 0 || index > 15) {
+		is_playing = 0;
+		return;
+	}
+
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
+
+	// Beep Mix Disable: disable
+	write_to_speaker_reg(0x1E, 0x20);
+	write_to_speaker_reg(0x1C, musical_note[index]);
+	// Beep Configuration: continuous
+	write_to_speaker_reg(0x1E, 0xE0);
+
+	int i;
+	for (i = 0; i < BEAT; i++) {
+		HAL_I2S_Transmit(&hi2s3, (uint16_t *) "a", 100, I2C_TIMEOUT);
+	}
+	is_playing = 0;
+}
+
+void play_musical_note_with_beat(int index, float beat) {
+	if (index < -1 || index > 15) {
+		is_playing = 0;
+		return;
+	}
+
+	int cycles_compromise = (int) (beat * 600);
+	if (index == -1) {
+		int i;
+		for (i = 0; i < cycles_compromise; i++)
+			;
+		is_playing = 0;
+		return;
+	}
+
+	HAL_GPIO_TogglePin(GPIOD, GPIO_PIN_15);
+
+	// Beep Mix Disable: disable
+	write_to_speaker_reg(0x1E, 0x20);
+	write_to_speaker_reg(0x1C, musical_note[index]);
+	// Beep Configuration: continuous
+	write_to_speaker_reg(0x1E, 0xE0);
+
+	int i;
+	// Beats
+	// int cycles = (int) (beat * ((60 / bpm) / clock));
+	for (i = 0; i < cycles_compromise; i++) {
+		HAL_I2S_Transmit(&hi2s3, (uint16_t *) "a", 100, I2C_TIMEOUT);
+	}
+	is_playing = 0;
+}
+
+void write_to_speaker_reg(uint8_t address, uint8_t data) {
+	// Chip address: 100101 followed by the setting of the AD0 pin (0) and R/W bit
+	uint8_t chip_address = 0b10010100;
+	uint8_t data_concat[2] = { address, data };
+	HAL_I2C_Master_Transmit(&hi2c1, chip_address, data_concat, 2, I2C_TIMEOUT);
+}
+
+void speaker_init() {
+	// Reset
+	HAL_GPIO_WritePin(SPEAKER_RESET_GPIO_TYPE, SPEAKER_RESET_GPIO_PIN_NUMBER,
+			GPIO_PIN_RESET);
+	HAL_Delay(DELAY_DURATION);
+	HAL_GPIO_WritePin(SPEAKER_RESET_GPIO_TYPE, SPEAKER_RESET_GPIO_PIN_NUMBER,
+			GPIO_PIN_SET);
+	HAL_Delay(DELAY_DURATION);
+
+	// Load the required initialization settings according to section 4.11 in data sheet
+	write_to_speaker_reg(0x00, 0x99);
+	write_to_speaker_reg(0x47, 0x80);
+	write_to_speaker_reg(0x32, 0b10111011);
+	write_to_speaker_reg(0x32, 0b00111011);
+	write_to_speaker_reg(0x00, 0x00);
+
+	// Beep & Tone Configuration: set BEEP[1:0] to 11 (continuous)
+	write_to_speaker_reg(0x1E, 0xC0);
+
+	// Change beep volume
+	write_to_speaker_reg(0x1D, BEEP_VOLUME);
+
+	// Set the “Power Ctl 1” register (0x02) to 0x9E
+	write_to_speaker_reg(0x02, 0x9E);
+}
 
 /* USER CODE END 4 */
 

@@ -71,14 +71,15 @@ void set_cs_before_communicating_with_acc();
 void set_cs_after_communicating_with_acc();
 
 uint8_t read_from_acc_reg(uint8_t address);
+int8_t read_from_acc_reg_with_sign(uint8_t address);
 void write_to_acc_reg(uint8_t address, uint8_t data);
 
 uint8_t acc_who_am_i();
 void acc_init();
 
-uint8_t acc_read_x();
-uint8_t acc_read_y();
-uint8_t acc_read_z();
+int8_t acc_read_x();
+int8_t acc_read_y();
+int8_t acc_read_z();
 
 void send_data_via_uart(char *data);
 
@@ -114,7 +115,7 @@ int main(void) {
 
 	/* USER CODE BEGIN 2 */
 
-	// Initialization an accelerometer
+	// Initialize an accelerometer
 	acc_init();
 
 	// Device Identification
@@ -448,6 +449,22 @@ uint8_t read_from_acc_reg(uint8_t address) {
 }
 
 /**
+ * @brief  Read data from an specific accelerometer register.
+ * @param  address: register address to be read
+ * @retval a byte of read data
+ */
+int8_t read_from_acc_reg_with_sign(uint8_t address) {
+	set_cs_before_communicating_with_acc();
+	uint8_t acc_address_data = (acc_read_nonincremented_address_header << 6) | address;
+	HAL_SPI_Transmit(&hspi1, &acc_address_data, 1, SPI_TIMEOUT);
+
+	int8_t acc_do_data;
+	HAL_SPI_Receive(&hspi1, &acc_do_data, 1, SPI_TIMEOUT);
+	set_cs_after_communicating_with_acc();
+	return acc_do_data;
+}
+
+/**
  * @brief  Write data to an specific accelerometer register.
  * @param  address: register address to be written
  * @param  data: data to be written
@@ -489,9 +506,9 @@ void acc_init() {
  * @param  None
  * @retval x-axis acceleration
  */
-uint8_t acc_read_x() {
+int8_t acc_read_x() {
 	uint8_t out_x_reg_addr = 0x29;
-	return read_from_acc_reg(out_x_reg_addr);
+	return read_from_acc_reg_with_sign(out_x_reg_addr);
 }
 
 /**
@@ -499,9 +516,9 @@ uint8_t acc_read_x() {
  * @param  None
  * @retval y-axis acceleration
  */
-uint8_t acc_read_y() {
+int8_t acc_read_y() {
 	uint8_t out_y_reg_addr = 0x2B;
-	return read_from_acc_reg(out_y_reg_addr);
+	return read_from_acc_reg_with_sign(out_y_reg_addr);
 }
 
 /**
@@ -509,9 +526,9 @@ uint8_t acc_read_y() {
  * @param  None
  * @retval z-axis acceleration
  */
-uint8_t acc_read_z() {
+int8_t acc_read_z() {
 	uint8_t out_z_reg_addr = 0x2D;
-	return read_from_acc_reg(out_z_reg_addr);
+	return read_from_acc_reg_with_sign(out_z_reg_addr);
 }
 
 /**
@@ -532,12 +549,12 @@ void send_data_via_uart(char *data) {
  * @retval None
  */
 void read_acceleration_and_send() {
-	uint8_t x_acc, y_acc, z_acc;
+	int8_t x_acc, y_acc, z_acc;
 	// Read acceleration data
 	x_acc = acc_read_x();
 	y_acc = acc_read_y();
 	z_acc = acc_read_z();
-	sprintf(string_buffer, "x-axis: %03d,  y-axis: %03d,  z-axis: %03d\n", x_acc, y_acc, z_acc);
+	sprintf(string_buffer, "x-axis: %d, y-axis: %d, z-axis: %d\n", x_acc, y_acc, z_acc);
 	send_data_via_uart(string_buffer);
 }
 
