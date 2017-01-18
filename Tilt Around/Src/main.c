@@ -240,8 +240,6 @@ int main(void)
 			}
 			state = 1;
 		}
-  	// is_loud();
-  	// HAL_Delay(500);
 
   }
   /* USER CODE END 3 */
